@@ -92,10 +92,10 @@ def create_modules(blocks):
             module.add_module("upsample_{}".format(index), upsample)
         # Route layer
         elif layer["type"] == "route":
-            layer["layer"] = layer["layer"].split(",")
-            start = int(layer["layer"][0])
+            layer["layers"] = layer["layers"].split(",")
+            start = int(layer["layers"][0])
             try:
-                end = int(layer["layer"][1])
+                end = int(layer["layers"][1])
             except:
                 end = 0
             # Positive anotation
@@ -147,9 +147,5 @@ class DetectionLayer(nn.Module):
 
 
 if __name__ == "__main__":
-    # blocks = parse_cfg("./cfg/yolov3.cfg")
-    # create_modules(blocks)
-    a = "1,"
-    x, y = a.split(",")
-
-    print(y == "")
+    blocks = parse_cfg("./cfg/yolov3.cfg")
+    print(create_modules(blocks))
