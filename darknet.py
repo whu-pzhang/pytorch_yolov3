@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
 import re
+from util import *
 
 
 def parse_cfg(cfgfile):
@@ -42,18 +43,12 @@ def parse_cfg(cfgfile):
 
 def create_modules(blocks):
     net_info = blocks[0]
-    print(net_info)
     module_list = nn.ModuleList()
     prev_filters = 3  # depth of feature map
     output_filters = []
 
     for index, layer in enumerate(blocks[1:]):
         module = nn.Sequential()
-
-        # check the type of block
-        # create a new module for the block
-        # append to module_list
-
         # Convolutional layer
         if layer["type"] == "convolutional":
             activation = layer["activation"]
@@ -68,6 +63,7 @@ def create_modules(blocks):
             padding = int(layer["pad"])
             kernel_size = int(layer["size"])
             stride = int(layer["stride"])
+
             if padding:
                 pad = (kernel_size - 1) // 2
             else:
@@ -75,7 +71,7 @@ def create_modules(blocks):
 
             # add the convolutional layer
             conv = nn.Conv2d(prev_filters, filters,
-                             kernel_size, stride, pad, bias)
+                             kernel_size, stride, pad, bias=bias)
             module.add_module("conv_{}".format(index), conv)
 
             if batch_normalize:
@@ -88,7 +84,7 @@ def create_modules(blocks):
         # Upsampling layer
         elif layer["type"] == "upsample":
             stride = int(layer["stride"])
-            upsample = nn.Upsample(scale_factor=stride,  mode="bilinear")
+            upsample = nn.Upsample(scale_factor=stride,  mode="nearest")
             module.add_module("upsample_{}".format(index), upsample)
         # Route layer
         elif layer["type"] == "route":
@@ -146,6 +142,105 @@ class DetectionLayer(nn.Module):
         self.anchors = anchors
 
 
+class Darknet(nn.Module):
+    def __init__(self, cfgfile):
+        super(Darknet, self).__init__()
+        self.blocks = parse_cfg(cfgfile)
+        self.net_info, self.module_list = create_modules(self.blocks)
+
+    def forward(self, x):
+        modules = self.blocks[1:]
+        outputs = {}
+
+        write = 0
+        for i, module in enumerate(modules):
+            module_type = module["type"]
+            if module_type == "convolutional" or module_type == "upsample":
+                x = self.module_list[i](x)
+
+            elif module_type == "route":
+                layers = module["layers"]
+                layers = [int(val) for val in layers]
+
+                if layers[0] > 0:
+                    layers[0] = layers[0] - i
+
+                if len(layers) == 1:
+                    x = outputs[i + layers[0]]
+                else:
+                    if layers[1] > 0:
+                        layers[1] = layers[1] - i
+                    map1 = outputs[i + layers[0]]
+                    map2 = outputs[i + layers[1]]
+
+                    x = torch.cat((map1, map2), dim=1)
+
+            elif module_type == "shortcut":
+                from_ = int(module["from"])
+                x = outputs[i - 1] + outputs[i + from_]
+
+            elif module_type == "yolo":
+                anchors = self.module_list[i][0].anchors
+
+                inp_dim = int(self.net_info["height"])
+
+                num_classes = int(module["classes"])
+
+                x = x.data
+                x = predict_transform(x, inp_dim, anchors, num_classes)
+
+                if not write:
+                    detections = x
+                    write = 1
+                else:
+                    detections = torch.cat((detections, x), dim=1)
+
+            outputs[i] = x
+
+        return detections
+
+    def load_weights(self, weightfile):
+        fp = open(weightfile, "rb")
+
+        # The first 5 values are header information
+        # 1. Major version number
+        # 2. Minor Version Number
+        # 3. Subversion number
+        # 4,5. Images seen by the network (during training)
+        header = np.fromfile(fp, dtype=np.int32, count=5)
+        self.header = torch.form_numpy(header)
+        self.seen = self.header[3]
+
+        weights = np.fromfile(fp, dtype=np.float32)
+        ptr = 0
+        for i, module in enumerate(self.module_list):
+            module_type = self.blocks[i + 1]["type"]
+            if module_type == "convolutional":
+                model = module
+                try:
+                    batch_normalize = int(self.blocks[i+1]["batch_normalize"])
+                except:
+                    batch_normalize = 0
+
+                conv = model[0]
+
+
+# ==========
+
+def get_test_input():
+    img = cv2.imread("dog-cycle-car.png")
+    img = cv2.resize(img, (608, 608))
+    img = img[:, :, ::-1].transpose((2, 0, 1))
+    img = img[None, :, :, :] / 255.0
+    img = torch.from_numpy(img).float()
+    return img
+
+
 if __name__ == "__main__":
-    blocks = parse_cfg("./cfg/yolov3.cfg")
-    print(create_modules(blocks))
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+
+    model = Darknet("cfg/yolov3.cfg").to(device)
+    inp = get_test_input()
+    pred = model(inp)
+    print(pred)
+    print(pred.size())
