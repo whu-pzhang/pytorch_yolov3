@@ -6,6 +6,48 @@ import torch.nn.functional as F
 
 import numpy as np
 import cv2
+import re
+
+
+def parse_cfg(cfg_path):
+    """
+    Parses the yolov3 layer configuration file
+
+    Arguments:
+        cfg_path {str} -- cfg file path
+
+    Returns a list of blocks. Each blocks describes a block in the neural network
+    to be built. Block is represented as a dictionary in the list
+    """
+
+    blocks = []
+    with open(cfg_path, "r") as f:
+        # get rid of comments and \n
+        lines = (line.strip() for line in f if not line.startswith("#"))
+        # get rid of whitespaces
+        lines = (re.sub("\s+", "", line) for line in lines if len(line) > 0)
+
+        for line in lines:
+            if line.startswith("["):  # start of a new block
+                blocks.append({})
+                blocks[-1]["type"] = line[1:-1]
+            else:
+                key, value = line.split("=")
+                blocks[-1][key] = value
+        return blocks
+
+
+def select_device(force_cpu=False):
+    if force_cpu:
+        cuda = False
+        device = torch.device("cpu")
+    else:
+        cuda = torch.cuda.is_available()
+        device = torch.device("cuda:0" if cuda else "cpu")
+
+    print("Using {} {}".format(device.type,
+                               torch.cuda.get_device_properties(0) if cuda else ""))
+    return device
 
 
 def unique(tensor):
@@ -39,64 +81,6 @@ def bbox_iou(box1, box2):
     iou = inter_area / (b1_area + b2_area - inter_area)
 
     return iou
-
-
-def predict_transform(prediction, inp_dim, anchors, num_classes):
-    """Transform a detection feature map into 2D tensor
-
-    Arguments:
-        prediction {torch.Tensor} -- feature map of detection layer (N, C, H, W)
-        inp_dim {int} -- input dimension
-        anchors {list} -- list of anchors
-        num_classes {int} -- number of classes
-        device {str} -- "cuda" or "cpu"
-    """
-    batch_size = prediction.size(0)
-    stride = inp_dim // prediction.size(2)
-    grid_size = inp_dim // stride
-    bbox_attrs = 5 + num_classes
-    num_anchors = len(anchors)
-
-    # print("inp_dim={}; stride={}; grid_size={}; bbox_attrs={}; H={}".format(
-    #     inp_dim, stride, grid_size, bbox_attrs, prediction.size(2)))
-
-    prediction = prediction.view(
-        batch_size, bbox_attrs*num_anchors, grid_size*grid_size)
-    prediction = prediction.transpose(1, 2).contiguous()
-    prediction = prediction.view(
-        batch_size, grid_size*grid_size*num_anchors, bbox_attrs)
-
-    anchors = [(a[0]/stride, a[1]/stride) for a in anchors]
-
-    # Sigmoid the center_x, center_Y and object confidence
-    prediction[:, :, 0] = torch.sigmoid(prediction[:, :, 0])
-    prediction[:, :, 1] = torch.sigmoid(prediction[:, :, 1])
-    prediction[:, :, 4] = torch.sigmoid(prediction[:, :, 4])
-
-    # Add the center offsets
-    grid = np.arange(grid_size)
-    a, b = np.meshgrid(grid, grid)
-
-    x_offset = torch.FloatTensor(a).view(-1, 1)
-    y_offset = torch.FloatTensor(b).view(-1, 1)
-
-    x_y_offset = torch.cat((x_offset, y_offset), dim=1).repeat(
-        1, num_anchors).view(-1, 2).unsqueeze(0)
-
-    prediction[:, :, :2] += x_y_offset
-
-    # log space transform height and width
-    anchors = torch.FloatTensor(anchors)
-
-    anchors = anchors.repeat(grid_size*grid_size, 1).unsqueeze(0)
-    prediction[:, :, 2:4] = torch.exp(prediction[:, :, 2:4]) * anchors
-
-    prediction[:, :, 5:5 +
-               num_classes] = torch.sigmoid(prediction[:, :, 5: 5 + num_classes])
-    # resize the detection map to the size of the input image
-    prediction[:, :, :4] *= stride
-
-    return prediction
 
 
 def write_results(prediction, confidence, num_classes, nms_conf=0.4):
@@ -196,3 +180,47 @@ def write_results(prediction, confidence, num_classes, nms_conf=0.4):
         return output
     except:
         return 0
+
+
+def load_classes(namesfile):
+    with open(namesfile, "r") as fp:
+        names = [line.strip() for line in fp]
+        return names
+
+
+def letterbox_image(image, inp_dim):
+    """Resize image with unchanged aspect ratio
+
+    Arguments:
+        img {ndarray} -- [description]
+        inp_dim {tuple} -- [description]
+
+    Returns:
+        canvas {torch.Tensor}
+    """
+    img_h, img_w = image.shape[0], image.shape[1]
+    w, h = inp_dim
+    scale = min(w/img_w, h/img_h)
+    new_w = int(img_w * scale)
+    new_h = int(img_h * scale)
+    resized_image = cv2.resize(
+        img, (new_h, new_w), interpolation=cv2.INTER_CUBIC)
+
+    canvas = np.full((inp_dim[1], inp_dim[0], 3), 128)
+    canvas[(h-new_h)//2:(h-new_h)//2+new_h,
+           (w-new_w) // 2:(w-new_w)//2+new_w, :] = resized_image
+
+    return canvas
+
+
+def prep_image(img, inp_dim):
+    """Prepare image for inputting
+
+    Arguments:
+        img {ndarray} -- [description]
+        inp_dim {torch.Tensor} -- [description]
+    """
+    img = cv2.resize(img, (inp_dim, inp_dim))
+    img = img[:, :, ::-1].transpose((2, 0, 1)).copy()
+    img = torch.from_numpy(img).float().div(255.0).unsqueeze(0)
+    return img
