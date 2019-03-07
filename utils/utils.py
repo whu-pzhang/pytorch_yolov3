@@ -50,15 +50,91 @@ def select_device(force_cpu=False):
     return device
 
 
-def unique(tensor):
-    tensor_np = tensor.cpu().numpy()
-    unique_np = np.unique(tensor_np)
-    unique_tensor = torch.from_numpy(unique_np)
+def non_max_suppression(prediction, conf_thres, nms_thres):
 
-    tensor_res = tensor.new(unique_tensor.shape)
-    tensor_res.copy_(unique_tensor)
+    # Convert (center_x, center_y, w, h) to
+    # top-left corner (x1,y1) and bottom-right corner (x2,y2)
+    box_corner = prediction.new(prediction.shape)
+    # top-left corner
+    box_corner[:, :, 0] = prediction[:, :, 0] - prediction[:, :, 2] / 2
+    box_corner[:, :, 1] = prediction[:, :, 1] - prediction[:, :, 3] / 2
+    # bottom-right corner
+    box_corner[:, :, 2] = prediction[:, :, 0] + prediction[:, :, 2] / 2
+    box_corner[:, :, 3] = prediction[:, :, 1] + prediction[:, :, 3] / 2
+    prediction[:, :, :4] = box_corner[:, :, :4]
 
-    return tensor_res
+    write = False
+    output = [None for _ in range(len(prediction))]
+    for i, pred in enumerate(prediction):
+        class_prob, class_pred = torch.max(pred[:, 5:], 1)
+
+        non_zero_index = torch.nonzero(pred[:, 4]).squeeze()
+        pred = pred[non_zero_index]
+        class_prob = class_prob[non_zero_index].float().unsqueeze(1)
+        class_pred = class_pred[non_zero_index].float().unsqueeze(1)
+
+        # if none are remaining --> process next image
+        if pred.shape[0] == 0:
+            continue
+
+        seq = (pred[:, :5], class_prob, class_pred)
+        detections = torch.cat(seq, 1)
+
+        unique_labels = detections[:, -1].cpu().unique()
+        if prediction.is_cuda:
+            unique_labels = unique_labels.cuda(prediction.device)
+
+        for c in unique_labels:
+            # Get the detections with class c
+            dc = detections[detections[:, -1] == c]
+            # Sort the detections such that the entry with the maximum objectness
+            # confidence is at the top
+            _, conf_sort_index = torch.sort(
+                dc[:, 4] * dc[:, 5], descending=True)
+            dc = dc[conf_sort_index]
+
+            # Non-maximum suppresion
+            # num_detections = dc.shape[0]
+            # for j in range(num_detections):
+            #     try:
+            #         # IoU with orther boxes
+            #         ious = bbox_iou(dc[j].unsqueeze(0), dc[j+1:])
+            #         print(ious.size())
+            #     except ValueError:
+            #         break
+            #     except IndexError:
+            #         break
+            #     # remove ious > threshold entry
+            #     dc = dc[j+1:][ious < nms_thres]
+            det_max = []
+            while dc.shape[0]:
+                det_max.append(dc[:1])
+                if len(dc) == 1:
+                    break
+                ious = bbox_iou(det_max[-1], dc[1:])
+                dc = dc[1:][ious < nms_thres]
+
+            # batch_idx = dc.new(len(dc), 1).fill_(i)
+            # seq = batch_idx, dc
+            # if not write:
+            #     output = torch.cat(seq, 1)
+            #     write = True
+            # else:
+            #     out = torch.cat(seq, 1)
+            #     output = torch.cat((output, out))
+
+            if len(det_max) > 0:
+                det_max = torch.cat(det_max)
+                if not write:
+                    output[i] = det_max
+                    write = True
+                else:
+                    output[i] = torch.cat((output[i], det_max))
+
+    return output
+
+
+#=============================
 
 
 def bbox_iou(box1, box2):
@@ -71,115 +147,16 @@ def bbox_iou(box1, box2):
     inter_rect_x2 = torch.min(b1_x2, b2_x2)
     inter_rect_y2 = torch.min(b1_y2, b2_y2)
 
-    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1 + 1, min=0) * \
-        torch.clamp(inter_rect_y2 - inter_rect_y1 + 1, min=0)
+    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1, min=0) * \
+        torch.clamp(inter_rect_y2 - inter_rect_y1, min=0)
 
     # Union area
-    b1_area = (b1_x2 - b1_x1 + 1) * (b1_y2 - b1_y1 + 1)
-    b2_area = (b2_x2 - b2_x1 + 1) * (b2_y2 - b2_y1 + 1)
+    b1_area = (b1_x2 - b1_x1) * (b1_y2 - b1_y1)
+    b2_area = (b2_x2 - b2_x1) * (b2_y2 - b2_y1)
 
-    iou = inter_area / (b1_area + b2_area - inter_area)
+    iou = inter_area / (b1_area + b2_area - inter_area + 1e-16)
 
     return iou
-
-
-def write_results(prediction, confidence, num_classes, nms_conf=0.4):
-    """[summary]
-
-    Arguments:
-        prediction {[type]} -- [description]
-        confidence {[type]} -- [description]
-        num_classes {int} -- number of classes
-
-    Keyword Arguments:
-        nms_conf {float} -- NMS IoU threshold (default: {0.4})
-    """
-    # set the values which below a threshold to zero
-    conf_mask = (prediction[:, :, 4] > confidence).float().unsqueeze(2)
-    prediction *= conf_mask
-
-    box_corner = prediction.new(prediction.shape)
-    # top-left corner
-    box_corner[:, :, 0] = prediction[:, :, 0] - prediction[:, :, 2] / 2
-    box_corner[:, :, 1] = prediction[:, :, 1] - prediction[:, :, 3] / 2
-    # bottom-right corner
-    box_corner[:, :, 2] = prediction[:, :, 0] + prediction[:, :, 2] / 2
-    box_corner[:, :, 3] = prediction[:, :, 1] + prediction[:, :, 3] / 2
-    prediction[:, :, :4] = box_corner[:, :, :4]
-
-    batch_size = prediction.size(0)
-    write = False
-
-    for ind in range(batch_size):
-        image_pred = prediction[ind]
-
-        max_conf, max_conf_score = torch.max(image_pred[:, 5:5+num_classes], 1)
-        max_conf = max_conf.float().unsqueeze(1)
-        max_conf_score = max_conf_score.float().unsqueeze(1)
-        seq = (image_pred[:, :5], max_conf, max_conf_score)
-        image_pred = torch.cat(seq, 1)
-
-        non_zero_idx = torch.nonzero(image_pred[:, 4])
-        try:
-            image_pred_ = image_pred[non_zero_idx, :].view(-1, 7)
-        except:
-            continue
-
-        if image_pred_.shape[0] == 0:
-            continue
-
-        # Get the various classes detected in the image
-        img_classes = unique(image_pred_[:, -1])
-
-        for cls in img_classes:
-            # perform NMS
-
-            # Get the detections with one particalar class
-            cls_mask = image_pred_ * \
-                (image_pred_[:, -1] == cls).float().unsqueeze(1)
-
-            class_mask_idx = torch.nonzero(cls_mask[:, -2]).squeeze()
-            image_pred_class = image_pred_[class_mask_idx].view(-1, 7)
-
-            # Sort the detections such that the entry with the maximum objectness
-            # confidence is at the top
-            conf_sort_index = torch.sort(
-                image_pred_class[:, 4], descending=True)[1]
-            image_pred_class = image_pred_class[conf_sort_index]
-            idx = image_pred_class.size(0)  # Number of detections
-
-            for i in range(idx):
-                try:
-                    ious = bbox_iou(image_pred_class[i].unsqueeze(
-                        0), image_pred_class[i+1:])
-                except ValueError:
-                    break
-                except IndexError:
-                    break
-
-                # Zero out all the detections that have IoU > threshold
-                iou_mask = (ious < nms_conf).float().unsqueeze(1)
-                image_pred_class[i+1:] *= iou_mask
-
-                # Remove the non-zero entries
-                non_zero_idx = torch.nonzero(image_pred_class[:, 4]).squeeze()
-                image_pred_class = image_pred_class[non_zero_idx].view(-1, 7)
-
-            batch_ind = image_pred_class.new(
-                image_pred_class.size(0), 1).fill_(ind)
-            seq = batch_ind, image_pred_class
-
-            if not write:
-                output = torch.cat(seq, 1)
-                write = True
-            else:
-                out = torch.cat(seq, 1)
-                output = torch.cat((output, out))
-
-    try:
-        return output
-    except:
-        return 0
 
 
 def load_classes(namesfile):
@@ -198,29 +175,15 @@ def letterbox_image(image, inp_dim):
     Returns:
         canvas {torch.Tensor}
     """
-    img_h, img_w = image.shape[0], image.shape[1]
+    shape = image.shape[0:2]  # [height, width]
     w, h = inp_dim
-    scale = min(w/img_w, h/img_h)
-    new_w = int(img_w * scale)
-    new_h = int(img_h * scale)
-    resized_image = cv2.resize(
-        img, (new_h, new_w), interpolation=cv2.INTER_CUBIC)
-
-    canvas = np.full((inp_dim[1], inp_dim[0], 3), 128)
-    canvas[(h-new_h)//2:(h-new_h)//2+new_h,
-           (w-new_w) // 2:(w-new_w)//2+new_w, :] = resized_image
-
-    return canvas
-
-
-def prep_image(img, inp_dim):
-    """Prepare image for inputting
-
-    Arguments:
-        img {ndarray} -- [description]
-        inp_dim {torch.Tensor} -- [description]
-    """
-    img = cv2.resize(img, (inp_dim, inp_dim))
-    img = img[:, :, ::-1].transpose((2, 0, 1)).copy()
-    img = torch.from_numpy(img).float().div(255.0).unsqueeze(0)
+    scale = float(h) / max(shape)  # scale factor = old / new
+    new_shape = (round(shape[1] * scale), round(shape[0] * scale))
+    dh = (h - new_shape[1]) / 2  # height padding
+    dw = (h - new_shape[0]) / 2
+    top, bottom = round(dh - 0.1), round(dh + 0.1)
+    left, right = round(dw - 0.1), round(dw + 0.1)
+    resized_image = cv2.resize(image, new_shape, interpolation=cv2.INTER_CUBIC)
+    img = cv2.copyMakeBorder(resized_image, top, bottom, left,
+                             right, cv2.BORDER_CONSTANT, value=(128, 128, 128))
     return img

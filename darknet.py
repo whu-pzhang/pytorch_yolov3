@@ -162,7 +162,7 @@ class YOLOLayer(nn.Module):
         if targets is not None:
             pass
         else:
-            # (bs, num_anchors*grid_grid, bbox_attrs)
+            # (batch_size, num_anchors*grid_grid, bbox_attrs)
             output = torch.cat(
                 (
                     pred_boxes.view(batch_size, -1, 4) * stride,
@@ -176,18 +176,22 @@ class YOLOLayer(nn.Module):
 
 
 class Darknet(nn.Module):
+    """
+    YOLOv3 object detection model
+    """
+
     def __init__(self, cfg_path):
         super(Darknet, self).__init__()
+
         self.blocks = parse_cfg(cfg_path)
         self.net_info, self.module_list = create_modules(self.blocks)
 
     def forward(self, x, targets=None):
         is_training = targets is not None
-        img_size = x.shape[-1]
         output = []
         layer_outputs = []
 
-        for module_def, module in zip(self.blocks, self.module_list):
+        for i, (module_def, module) in enumerate(zip(self.blocks, self.module_list)):
             module_type = module_def["type"]
             if module_type in ["convolutional", "upsample"]:
                 x = module(x)
@@ -208,7 +212,7 @@ class Darknet(nn.Module):
                 if is_training:
                     pass
                 else:  # inference
-                    x = module(x)
+                    x = module[0](x)
                 output.append(x)
 
             layer_outputs.append(x)
@@ -235,15 +239,18 @@ class Darknet(nn.Module):
         self.seen = self.header[3]
 
         weights = np.fromfile(fp, dtype=np.float32)
+        fp.close()
+
         ptr = 0  # keep track of where we are in the weight array
         for module_def, module in zip(self.blocks, self.module_list):
             module_type = module_def["type"]
             if module_type == "convolutional":
+                conv = module[0]
                 try:
                     batch_normalize = int(module_def["batch_normalize"])
                 except:
                     batch_normalize = 0
-                conv = module[0]
+
                 if batch_normalize:
                     bn = module[1]
                     # Get the number of weights of BatchNorm layer
@@ -277,16 +284,13 @@ class Darknet(nn.Module):
                     ptr += num_biases
 
                 num_weights = conv.weight.numel()
-
                 conv_weights = torch.from_numpy(
                     weights[ptr: ptr + num_weights]).view_as(conv.weight)
                 conv.weight.data.copy_(conv_weights)
                 ptr += num_weights
 
-        fp.close()
-
-
 # ==========
+
 
 def get_test_input():
     img = cv2.imread("dog-cycle-car.png")
