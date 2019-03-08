@@ -37,10 +37,10 @@ class LoadImages():
         img = letterbox_image(img0, (self.width, self.height))
 
         # Normalize RGB
-        img = img[:, :, ::-1].transpose(2, 0, 1)
-        img = np.ascontiguousarray(img, dtype=np.float32)
+        img = img[:, :, ::-1].transpose(2, 0, 1) / 255.0
+        # img = np.ascontiguousarray(img, dtype=np.float32)
 
-        return img_path, img / 255.0
+        return img_path, img, img0
 
     def __len__(self):
         return self.num_images

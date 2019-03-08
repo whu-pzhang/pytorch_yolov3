@@ -20,7 +20,7 @@ def create_modules(blocks):
     """
 
     net_info = blocks.pop(0)
-    img_size = int(net_info["height"])  # input image size
+    img_size = int(net_info["height"])  # network input image size
     output_filters = [int(net_info["channels"])]
     module_list = nn.ModuleList()
 
@@ -129,50 +129,54 @@ class YOLOLayer(nn.Module):
         batch_size, grid_size = x.size(0), x.size(2)
         stride = self.img_size // grid_size
 
-        # (bs, depth, 13, 13) --> (bs, 3, 13, 13, 85) # (bs, num_anchors, grid, grid, bbox_attrs)
-        prediction = x.view(batch_size, self.num_anchors,
-                            self.bbox_attrs, grid_size, grid_size).permute(0, 1, 3, 4, 2).contiguous()
+        # (bs, depth, 13, 13) --> (bs, 3*85, 13*13) # (bs, num_anchors, grid, grid, bbox_attrs)
+        prediction = x.view(batch_size, self.num_anchors *
+                            self.bbox_attrs, grid_size*grid_size)
+        prediction = prediction.transpose(1, 2).contiguous()
+        prediction = prediction.view(
+            batch_size, grid_size*grid_size*self.num_anchors, self.bbox_attrs)
 
         # Get outputs
-        x = torch.sigmoid(prediction[..., 0])  # x, y coordinates
-        y = torch.sigmoid(prediction[..., 1])
-        w, h = prediction[..., 2], prediction[..., 3]  # width, height
-        obj_conf = torch.sigmoid(prediction[..., 4])  # object confidence
-        cls_prob = torch.sigmoid(prediction[..., 5:])   # class probility
+        # x, y coordinates and object confidence
+        prediction[:, :, :2] = torch.sigmoid(prediction[:, :, :2])
+        # object confidence
+        prediction[:, :, 4] = torch.sigmoid(prediction[:, :, 4])
+        # class probility
+        prediction[:, :, 5:] = torch.sigmoid(prediction[:, :, 5:])
 
         # Calculate offsets for each grid
-        grid_x = torch.arange(grid_size).repeat(
-            grid_size, 1).view([1, 1, grid_size, grid_size]).type(torch.FloatTensor)
-        grid_y = torch.arange(grid_size).repeat(
-            grid_size, 1).t().view([1, 1, grid_size, grid_size]).type(torch.FloatTensor)
+        grid = np.arange(grid_size)
+        a, b = np.meshgrid(grid, grid)
+        # x_offset = cx, y_offset=cy
+        # left-top coordinates of cell
+        x_offset = torch.FloatTensor(a).view(-1, 1)
+        y_offset = torch.FloatTensor(b).view(-1, 1)
 
-        scaled_anchors = torch.FloatTensor([(aw / stride, ah / stride)
-                                            for aw, ah in self.anchors])
-        anchor_w = scaled_anchors[:, 0:1].view((1, self.num_anchors, 1, 1))
-        anchor_h = scaled_anchors[:, 1:2].view((1, self.num_anchors, 1, 1))
+        xy_offset = torch.cat((x_offset, y_offset),
+                              1).repeat(1, self.num_anchors).view(-1, 2).unsqueeze(0)
 
-        # Add offset and scale with anchors
-        pred_boxes = torch.FloatTensor(prediction[..., :4].size())
-        pred_boxes[..., 0] = x.data + grid_x
-        pred_boxes[..., 1] = y.data + grid_y
-        pred_boxes[..., 2] = torch.exp(w.data) * anchor_w
-        pred_boxes[..., 3] = torch.exp(h.data) * anchor_h
+        # bx = sigmoid(tx) + cx
+        # by = sigmoid(ty) + cy
+        prediction[:, :, 0:2] += xy_offset
+
+        scaled_anchors = [(aw / stride, ah / stride)
+                          for aw, ah in self.anchors]
+        scaled_anchors = torch.FloatTensor(scaled_anchors)
+        scaled_anchors = scaled_anchors.repeat(
+            grid_size*grid_size, 1).unsqueeze(0)
+        # bw = pw * e^tw
+        # bh = ph * e^th
+        prediction[:, :, 2:4] = torch.exp(
+            prediction[:, :, 2:4]) * scaled_anchors
+
+        prediction[:, :, :4] *= stride
 
         # Training
         if targets is not None:
             pass
         else:
             # (batch_size, num_anchors*grid_grid, bbox_attrs)
-            output = torch.cat(
-                (
-                    pred_boxes.view(batch_size, -1, 4) * stride,
-                    obj_conf.view(batch_size, -1, 1),
-                    cls_prob.view(batch_size, -1, self.num_classes)
-                ),
-                -1
-            )
-
-        return output
+            return prediction
 
 
 class Darknet(nn.Module):
@@ -180,10 +184,11 @@ class Darknet(nn.Module):
     YOLOv3 object detection model
     """
 
-    def __init__(self, cfg_path):
+    def __init__(self, cfg_path, img_size):
         super(Darknet, self).__init__()
 
         self.blocks = parse_cfg(cfg_path)
+        self.blocks[0]["height"] = img_size
         self.net_info, self.module_list = create_modules(self.blocks)
 
     def forward(self, x, targets=None):
@@ -224,7 +229,7 @@ class Darknet(nn.Module):
         Parse and load the weight
 
         Arguments:
-            weight_path {str} -- 
+            weight_path {str} --
         """
 
         fp = open(weight_path, "rb")

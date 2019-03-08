@@ -187,3 +187,31 @@ def letterbox_image(image, inp_dim):
     img = cv2.copyMakeBorder(resized_image, top, bottom, left,
                              right, cv2.BORDER_CONSTANT, value=(128, 128, 128))
     return img
+
+
+def rescale_coords(img_size, detections, img0_shape):
+    scale = img_size / max(img0_shape)  # scale = old / new
+    padx = (img_size - img0_shape[1] * scale) / 2
+    pady = (img_size - img0_shape[0] * scale) / 2
+    detections[:, [0, 2]] -= padx
+    detections[:, [1, 3]] -= pady
+    detections[:, :4] /= scale
+    detections[:, :4] = torch.clamp(detections[:, :4], 0)
+    return detections
+
+
+def draw_bbox(img, coords, label=None, color=None, lw=None):
+    line_width = lw or round(0.002 * max(img.shape[0:2]) + 1)
+    color = color or np.random.randint(0, 255, 3).tolist()
+    ltp = (int(coords[0]), int(coords[1]))  # left-top point
+    rbp = (int(coords[2]), int(coords[3]))  # right-bottom point
+    cv2.rectangle(img, ltp, rbp, color, thickness=line_width)
+
+    if label:
+        t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 1, 1)[0]
+        rbp = ltp[0] + t_size[0], ltp[1] - t_size[1] - 3
+        cv2.rectangle(img, ltp, rbp, color, -1)  # filled
+        cv2.putText(img, label, (ltp[0], ltp[1] +
+                                 t_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 1, [255, 255, 255], 1)
+
+    return img
