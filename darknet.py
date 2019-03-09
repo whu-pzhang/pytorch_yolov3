@@ -293,30 +293,3 @@ class Darknet(nn.Module):
                     weights[ptr: ptr + num_weights]).view_as(conv.weight)
                 conv.weight.data.copy_(conv_weights)
                 ptr += num_weights
-
-# ==========
-
-
-def get_test_input():
-    img = cv2.imread("dog-cycle-car.png")
-    img = cv2.resize(img, (608, 608))
-    img = img[:, :, ::-1].transpose((2, 0, 1))
-    img = img[None, :, :, :] / 255.0
-    img = torch.from_numpy(img).float()
-    return img
-
-
-def test(cfg, weights):
-
-    device = select_device()
-    print("Loading network...")
-    model = Darknet(cfg)
-    model.load_weights(weights)
-    print("Network successfully loaded")
-
-    model.to(device).eval()
-
-
-if __name__ == "__main__":
-
-    test("cfg/yolov3.cfg", "weights/yolov3.weights")

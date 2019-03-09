@@ -75,41 +75,40 @@ def detect(cfg,
     num_classes = len(classes)
     colors = np.random.randint(0, 255, (num_classes, 3)).tolist()
 
-    for i, (path, img, img0) in enumerate(dataloader):
+    for i, (img_path, img, img0) in enumerate(dataloader):
         if webcam:
             pass
         else:
             print("{0:d}/{1:d} {2:s}:".format(i+1,
-                                              len(dataloader), path), end=" ")
-        # detect
+                                              len(dataloader), img_path), end=" ")
         start = time.time()
+
         img = torch.from_numpy(img).float().unsqueeze(0).to(device)
-        pred = model(img)
-        # move boxes < conf_threshold
-        pred = pred[pred[:, :, 4] > conf_thres]
+
+        with torch.no_grad():
+            pred = model(img)
+        detections = non_max_suppression(pred, conf_thres, nms_thres)[0]
 
         end = time.time()
 
-        if len(pred) > 0:
-            # NMS
-            detections = non_max_suppression(
-                pred.unsqueeze(0), conf_thres, nms_thres)[0]
+        print("Predicted in {0:.3f} seconds.".format(end - start))
 
-            unique_classes = detections[:, -1].cpu().unique()
-            for c in unique_classes:
-                n = (detections[:, -1].cpu() == c).sum()
-                print("{} {}".format(n, classes[int(c)]), end=", ")
+        # unique_classes = detections[:, -1].cpu().unique()
 
-            # Rescale boxes from img_size to the original image size
-            detections = rescale_coords(img_size, detections, img0.shape)
-            # Draw bboxes and labels
-            for x1, y1, x2, y2, conf, cls_conf, cls_pred in detections:
-                label = "{0:s} {1:.2f}".format(classes[int(cls_pred)], conf)
-                img0 = draw_bbox(img0, [x1, y1, x2, y2],
-                                 label=label, color=colors[int(cls_pred)])
+        # Rescale boxes from img_size to the original image size
+        detections = rescale_coords(img_size, detections, img0.shape)
+        # Draw bboxes and labels
+        for x1, y1, x2, y2, conf, cls_conf, cls_pred in detections:
+            print("\t+ Label: {:s}, Conf: {:.5f}".format(
+                classes[int(cls_pred)], cls_conf.item()))
+
+            label = "{0:s} {1:.2f}".format(classes[int(cls_pred)], conf)
+            img0 = draw_bbox(img0, [x1, y1, x2, y2],
+                             label=label, color=colors[int(cls_pred)])
 
         if save_images:
-            save_path = str(Path(os.path.realpath(output)) / Path(path).name)
+            save_path = str(Path(os.path.realpath(output)) /
+                            Path(img_path).name)
             cv2.imwrite(save_path, img0)
         if webcam:
             pass
@@ -119,25 +118,25 @@ def detect(cfg,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--cfg", type=str, default="cfg/yolov3.cfg",
-                        help="cfg file path")
-    parser.add_argument('--weights', type=str,
+    parser.add_argument("--cfg_path", type=str, default="cfg/yolov3.cfg",
+                        help="path to model config file")
+    parser.add_argument('--weights_path', type=str,
                         default='weights/yolov3.weights', help='path to weights file')
     parser.add_argument('--images', type=str,
                         default='example', help='path to images')
-    parser.add_argument('--img-size', type=int, default=32 *
-                        13, help='size of each image dimension')
-    parser.add_argument('--conf-thres', type=float,
-                        default=0.50, help='object confidence threshold')
-    parser.add_argument('--nms-thres', type=float, default=0.45,
+    parser.add_argument('--img_size', type=int, default=416,
+                        help='size of each image dimension')
+    parser.add_argument('--conf_thres', type=float,
+                        default=0.8, help='object confidence threshold')
+    parser.add_argument('--nms_thres', type=float, default=0.4,
                         help='iou threshold for non-maximum suppression')
     opt = parser.parse_args()
     print(opt)
 
     with torch.no_grad():
         detect(
-            opt.cfg,
-            opt.weights,
+            opt.cfg_path,
+            opt.weights_path,
             opt.images,
             img_size=opt.img_size,
             conf_thres=opt.conf_thres,

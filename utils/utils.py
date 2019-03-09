@@ -51,6 +51,18 @@ def select_device(force_cpu=False):
 
 
 def non_max_suppression(prediction, conf_thres, nms_thres):
+    """
+    Remove detections with lower object confidence score than 'conf_thres' and
+    performs Non-maximum Suppression to further filter detections.
+
+    Arguments:
+        prediction {[type]} -- [description]
+        conf_thres {[type]} -- [description]
+        nms_thres {[type]} -- [description]
+
+    Returns:
+        detections with shape: (x1, y1, x2, y2, object_conf, class_score, class_pred)
+    """
 
     # Convert (center_x, center_y, w, h) to
     # top-left corner (x1,y1) and bottom-right corner (x2,y2)
@@ -63,73 +75,46 @@ def non_max_suppression(prediction, conf_thres, nms_thres):
     box_corner[:, :, 3] = prediction[:, :, 1] + prediction[:, :, 3] / 2
     prediction[:, :, :4] = box_corner[:, :, :4]
 
-    write = False
     output = [None for _ in range(len(prediction))]
     for i, pred in enumerate(prediction):
-        class_prob, class_pred = torch.max(pred[:, 5:], 1)
-
-        non_zero_index = torch.nonzero(pred[:, 4]).squeeze()
-        pred = pred[non_zero_index]
-        class_prob = class_prob[non_zero_index].float().unsqueeze(1)
-        class_pred = class_pred[non_zero_index].float().unsqueeze(1)
-
+        # Filter out confidence scores below threshold
+        conf_mask = (pred[:, 4] >= conf_thres).squeeze()
+        pred = pred[conf_mask]
         # if none are remaining --> process next image
-        if pred.shape[0] == 0:
+        if pred.size(0) == 0:
             continue
 
-        seq = (pred[:, :5], class_prob, class_pred)
-        detections = torch.cat(seq, 1)
+        class_prob, class_pred = torch.max(pred[:, 5:], 1, keepdim=True)
 
+        detections = torch.cat(
+            (pred[:, :5], class_prob.float(), class_pred.float()), 1)
+        # loop over all predicted classes
         unique_labels = detections[:, -1].cpu().unique()
         if prediction.is_cuda:
             unique_labels = unique_labels.cuda(prediction.device)
 
         for c in unique_labels:
             # Get the detections with class c
-            dc = detections[detections[:, -1] == c]
+            detections_class = detections[detections[:, -1] == c]
             # Sort the detections such that the entry with the maximum objectness
             # confidence is at the top
             _, conf_sort_index = torch.sort(
-                dc[:, 4] * dc[:, 5], descending=True)
-            dc = dc[conf_sort_index]
+                detections_class[:, 4] * detections_class[:, 5], descending=True)
+            detections_class = detections_class[conf_sort_index]
 
             # Non-maximum suppresion
-            # num_detections = dc.shape[0]
-            # for j in range(num_detections):
-            #     try:
-            #         # IoU with orther boxes
-            #         ious = bbox_iou(dc[j].unsqueeze(0), dc[j+1:])
-            #         print(ious.size())
-            #     except ValueError:
-            #         break
-            #     except IndexError:
-            #         break
-            #     # remove ious > threshold entry
-            #     dc = dc[j+1:][ious < nms_thres]
             det_max = []
-            while dc.shape[0]:
-                det_max.append(dc[:1])
-                if len(dc) == 1:
+            while detections_class.size(0):
+                det_max.append(detections_class[:1])
+                if len(detections_class) == 1:
                     break
-                ious = bbox_iou(det_max[-1], dc[1:])
-                dc = dc[1:][ious < nms_thres]
+                ious = bbox_iou(det_max[-1], detections_class[1:])
+                detections_class = detections_class[1:][ious < nms_thres]
 
-            # batch_idx = dc.new(len(dc), 1).fill_(i)
-            # seq = batch_idx, dc
-            # if not write:
-            #     output = torch.cat(seq, 1)
-            #     write = True
-            # else:
-            #     out = torch.cat(seq, 1)
-            #     output = torch.cat((output, out))
-
-            if len(det_max) > 0:
-                det_max = torch.cat(det_max)
-                if not write:
-                    output[i] = det_max
-                    write = True
-                else:
-                    output[i] = torch.cat((output[i], det_max))
+            det_max = torch.cat(det_max)
+            # Add max detections to outputs
+            output[i] = det_max if output[i] is None else torch.cat(
+                (output[i], det_max))
 
     return output
 
@@ -201,17 +186,17 @@ def rescale_coords(img_size, detections, img0_shape):
 
 
 def draw_bbox(img, coords, label=None, color=None, lw=None):
-    line_width = lw or round(0.002 * max(img.shape[0:2]) + 1)
+    # line_width = lw or round(0.002 * max(img.shape[0:2])) + 1
     color = color or np.random.randint(0, 255, 3).tolist()
     ltp = (int(coords[0]), int(coords[1]))  # left-top point
     rbp = (int(coords[2]), int(coords[3]))  # right-bottom point
-    cv2.rectangle(img, ltp, rbp, color, thickness=line_width)
+    cv2.rectangle(img, ltp, rbp, color, 1)
 
     if label:
-        t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 1, 1)[0]
-        rbp = ltp[0] + t_size[0], ltp[1] - t_size[1] - 3
+        t_size = cv2.getTextSize(label, 0, 1, 1)[0]
+        rbp = ltp[0] + t_size[0] + 3, ltp[1] - t_size[1] - 4
         cv2.rectangle(img, ltp, rbp, color, -1)  # filled
-        cv2.putText(img, label, (ltp[0], ltp[1] +
-                                 t_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 1, [255, 255, 255], 1)
+        cv2.putText(img, label, (ltp[0], ltp[1]-4),
+                    0, 1, [255, 255, 255], thickness=1, lineType=cv2.LINE_AA)
 
     return img
