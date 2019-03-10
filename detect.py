@@ -32,9 +32,9 @@ def arg_parse():
                         help="Image / Directory to store detections to",
                         default="det", type=str)
     parser.add_argument("--bs", dest="bs", help="Batch size", default=1)
-    parser.add_argument("--confidence", dest="confidence",
+    parser.add_argument("--conf_thres", dest="conf_thres",
                         help="Object Confidence to filter predictions", default=0.5)
-    parser.add_argument("--nms_thresh", dest="nms_thresh",
+    parser.add_argument("--nms_thres", dest="nms_thresh",
                         help="NMS Threshhold", default=0.4)
     parser.add_argument("--cfg", dest='cfgfile', help="Config file",
                         default="cfg/yolov3.cfg", type=str)
@@ -118,14 +118,16 @@ def detect(cfg,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument('--images', type=str,
+                        default='example', help='path to images')
+    parser.add_argument("--output", type=str, default="output",
+                        help="Image / Directory to store detections to")
     parser.add_argument("--cfg_path", type=str, default="cfg/yolov3.cfg",
                         help="path to model config file")
     parser.add_argument('--weights_path', type=str,
                         default='weights/yolov3.weights', help='path to weights file')
-    parser.add_argument('--images', type=str,
-                        default='example', help='path to images')
     parser.add_argument('--img_size', type=int, default=416,
-                        help='size of each image dimension')
+                        help='input image size of the network.(Increase to increase accuracy. Decrease to increase speed)')
     parser.add_argument('--conf_thres', type=float,
                         default=0.8, help='object confidence threshold')
     parser.add_argument('--nms_thres', type=float, default=0.4,
@@ -138,6 +140,7 @@ if __name__ == "__main__":
             opt.cfg_path,
             opt.weights_path,
             opt.images,
+            output=opt.output,
             img_size=opt.img_size,
             conf_thres=opt.conf_thres,
             nms_thres=opt.nms_thres

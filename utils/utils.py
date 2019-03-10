@@ -194,9 +194,9 @@ def draw_bbox(img, coords, label=None, color=None, lw=None):
 
     if label:
         t_size = cv2.getTextSize(label, 0, 1, 1)[0]
-        rbp = ltp[0] + t_size[0] + 3, ltp[1] - t_size[1] - 4
-        cv2.rectangle(img, ltp, rbp, color, -1)  # filled
+        # rbp = ltp[0] + t_size[0] + 3, ltp[1] - t_size[1] - 4
+        # cv2.rectangle(img, ltp, rbp, color, -1)  # filled
         cv2.putText(img, label, (ltp[0], ltp[1]-4),
-                    0, 1, [255, 255, 255], thickness=1, lineType=cv2.LINE_AA)
+                    cv2.FONT_HERSHEY_COMPLEX, 0.5, color, thickness=1, lineType=cv2.LINE_AA)
 
     return img
