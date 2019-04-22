@@ -127,8 +127,10 @@ def bbox_iou(box1, box2):
     b2_x1, b2_y1, b2_x2, b2_y2 = box2[:, 0], box2[:, 1], box2[:, 2], box2[:, 3]
 
     # Get the coordinates of the intersection rectangle
+    # left-top coordinates of intersection area
     inter_rect_x1 = torch.max(b1_x1, b2_x1)
     inter_rect_y1 = torch.max(b1_y1, b2_y1)
+    # right-bottom coordinates of intersection area
     inter_rect_x2 = torch.min(b1_x2, b2_x2)
     inter_rect_y2 = torch.min(b1_y2, b2_y2)
 

@@ -1,4 +1,4 @@
-import os
+from pathlib import Path
 import cv2
 import numpy as np
 import torch
@@ -10,12 +10,12 @@ import matplotlib.pyplot as plt
 
 class LoadImages():
     def __init__(self, path, img_size=(416, 416)):
-        if os.path.isdir(path):
+        path = Path(path)
+        if path.is_dir():
             image_format = [".jpg", ".jpeg", ".png"]
-            path = os.path.realpath(path)
-            self.files = [os.path.join(path, file) for file in os.listdir(path) if os.path.splitext(file)[
-                1].lower() in image_format]
-        elif os.path.isfile(path):
+            path = path.resolve()
+            self.files = [file for file in path.glob("*") if file.suffix in image_format]
+        elif path.is_file():
             self.files = [path]
 
         self.num_images = len(self.files)
@@ -30,7 +30,7 @@ class LoadImages():
         if self.count == self.num_images:
             raise StopIteration
 
-        img_path = self.files[self.count]
+        img_path = str(self.files[self.count])
 
         # Padded resize
         img0 = cv2.imread(img_path)

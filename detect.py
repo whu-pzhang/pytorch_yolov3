@@ -4,10 +4,8 @@ import torch
 import torch.nn as nn
 
 import numpy as np
-import pandas as pd
 import cv2
 
-import os
 import argparse
 from pathlib import Path
 import pickle as pkl
@@ -22,9 +20,7 @@ import matplotlib.pyplot as plt
 
 
 def arg_parse():
-
     parser = argparse.ArgumentParser()
-
     parser.add_argument("--images", dest="images",
                         help="Image / Directory containg images to perform detection upon",
                         default="imgs", type=str)
@@ -57,8 +53,7 @@ def detect(cfg,
            webcam=False):
     device = select_device()
 
-    if not os.path.exists(output):
-        os.makedirs(output)
+    Path(output).mkdir(parents=True, exist_ok=True)
 
     model = Darknet(cfg, img_size)
     model.load_weights(weights)
@@ -79,7 +74,7 @@ def detect(cfg,
         if webcam:
             pass
         else:
-            print("{0:d}/{1:d} {2:s}:".format(i+1,
+            print("{0:d}/{1:d} {2:s}:".format(i + 1,
                                               len(dataloader), img_path), end=" ")
         start = time.time()
 
@@ -87,6 +82,7 @@ def detect(cfg,
 
         with torch.no_grad():
             pred = model(img)
+
         detections = non_max_suppression(pred, conf_thres, nms_thres)[0]
 
         end = time.time()
@@ -107,9 +103,8 @@ def detect(cfg,
                              label=label, color=colors[int(cls_pred)])
 
         if save_images:
-            save_path = str(Path(os.path.realpath(output)) /
-                            Path(img_path).name)
-            cv2.imwrite(save_path, img0)
+            save_path = Path(output).resolve() / Path(img_path).name
+            cv2.imwrite(str(save_path), img0)
         if webcam:
             pass
 
@@ -122,9 +117,9 @@ if __name__ == "__main__":
                         default='example', help='path to images')
     parser.add_argument("--output", type=str, default="output",
                         help="Image / Directory to store detections to")
-    parser.add_argument("--cfg_path", type=str, default="cfg/yolov3.cfg",
+    parser.add_argument("--cfg", type=str, default="cfg/yolov3.cfg",
                         help="path to model config file")
-    parser.add_argument('--weights_path', type=str,
+    parser.add_argument('--weights', type=str,
                         default='weights/yolov3.weights', help='path to weights file')
     parser.add_argument('--img_size', type=int, default=416,
                         help='input image size of the network.(Increase to increase accuracy. Decrease to increase speed)')
@@ -137,8 +132,8 @@ if __name__ == "__main__":
 
     with torch.no_grad():
         detect(
-            opt.cfg_path,
-            opt.weights_path,
+            opt.cfg,
+            opt.weights,
             opt.images,
             output=opt.output,
             img_size=opt.img_size,
