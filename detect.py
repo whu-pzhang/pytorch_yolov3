@@ -52,8 +52,8 @@ def detect(cfg,
            save_images=True,
            webcam=False):
     device = select_device()
-
-    Path(output).mkdir(parents=True, exist_ok=True)
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
 
     model = Darknet(cfg, img_size)
     model.load_weights(weights)
@@ -99,11 +99,10 @@ def detect(cfg,
                 classes[int(cls_pred)], cls_conf.item()))
 
             label = "{0:s} {1:.2f}".format(classes[int(cls_pred)], conf)
-            img0 = draw_bbox(img0, [x1, y1, x2, y2],
-                             label=label, color=colors[int(cls_pred)])
+            img0 = draw_bbox(img0, [x1, y1, x2, y2], label=label, color=colors[int(cls_pred)])
 
         if save_images:
-            save_path = Path(output).resolve() / Path(img_path).name
+            save_path = output / Path(img_path).name
             cv2.imwrite(str(save_path), img0)
         if webcam:
             pass
@@ -114,7 +113,7 @@ def detect(cfg,
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--images', type=str,
-                        default='example', help='path to images')
+                        default='data/samples', help='path to images')
     parser.add_argument("--output", type=str, default="output",
                         help="Image / Directory to store detections to")
     parser.add_argument("--cfg", type=str, default="cfg/yolov3.cfg",

@@ -10,10 +10,9 @@ import matplotlib.pyplot as plt
 
 class LoadImages():
     def __init__(self, path, img_size=(416, 416)):
-        path = Path(path)
+        path = Path(path).resolve()
         if path.is_dir():
             image_format = [".jpg", ".jpeg", ".png"]
-            path = path.resolve()
             self.files = [file for file in path.glob("*") if file.suffix in image_format]
         elif path.is_file():
             self.files = [path]

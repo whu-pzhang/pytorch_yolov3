@@ -7,6 +7,7 @@ import torch.nn.functional as F
 import numpy as np
 import cv2
 import re
+import matplotlib.patches as patches
 
 
 def parse_cfg(cfg_path):
@@ -25,7 +26,7 @@ def parse_cfg(cfg_path):
         # get rid of comments and \n
         lines = (line.strip() for line in f if not line.startswith("#"))
         # get rid of whitespaces
-        lines = (re.sub("\s+", "", line) for line in lines if len(line) > 0)
+        lines = (re.sub(r"\s+", "", line) for line in lines if len(line) > 0)
 
         for line in lines:
             if line.startswith("["):  # start of a new block
@@ -119,7 +120,7 @@ def non_max_suppression(prediction, conf_thres, nms_thres):
     return output
 
 
-#=============================
+# =============================
 
 
 def bbox_iou(box1, box2):
@@ -188,17 +189,21 @@ def rescale_coords(img_size, detections, img0_shape):
 
 
 def draw_bbox(img, coords, label=None, color=None, lw=None):
-    # line_width = lw or round(0.002 * max(img.shape[0:2])) + 1
+    if lw is not None:
+        line_width = lw
+    else:
+        line_width = 2
     color = color or np.random.randint(0, 255, 3).tolist()
     ltp = (int(coords[0]), int(coords[1]))  # left-top point
     rbp = (int(coords[2]), int(coords[3]))  # right-bottom point
-    cv2.rectangle(img, ltp, rbp, color, 1)
+    cv2.rectangle(img, ltp, rbp, color, line_width)
 
     if label:
-        t_size = cv2.getTextSize(label, 0, 1, 1)[0]
-        # rbp = ltp[0] + t_size[0] + 3, ltp[1] - t_size[1] - 4
-        # cv2.rectangle(img, ltp, rbp, color, -1)  # filled
-        cv2.putText(img, label, (ltp[0], ltp[1]-4),
-                    cv2.FONT_HERSHEY_COMPLEX, 0.5, color, thickness=1, lineType=cv2.LINE_AA)
+        (label_width, label_height), baseline = cv2.getTextSize(
+            label, cv2.FONT_HERSHEY_DUPLEX, 0.6, 2)
+        rbp = ltp[0] + label_width, ltp[1] - label_height - 2
+        cv2.rectangle(img, ltp, rbp, color, -1)  # filled
+        cv2.putText(img, label, (ltp[0], ltp[1] - 1),
+                    cv2.FONT_HERSHEY_DUPLEX, 0.6, [255, 255, 255], thickness=1, lineType=cv2.LINE_AA)
 
     return img
