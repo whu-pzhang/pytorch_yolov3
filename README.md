@@ -1,1 +1,1 @@
-# YOLOv3 in PyTorch
+# PyTorch implementation of YOLOv3
