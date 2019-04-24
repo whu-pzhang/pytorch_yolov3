@@ -43,6 +43,7 @@ def arg_parse():
 
 
 def detect(cfg,
+           class_names,
            weights,
            images,
            output="output",  # output folder
@@ -66,7 +67,7 @@ def detect(cfg,
         dataloader = LoadImages(images, img_size=(img_size, img_size))
 
     # Get classes and colors
-    classes = load_classes("data/coco.names")
+    classes = load_classes(class_names)
     num_classes = len(classes)
     colors = np.random.randint(0, 255, (num_classes, 3)).tolist()
 
@@ -74,8 +75,7 @@ def detect(cfg,
         if webcam:
             pass
         else:
-            print("{0:d}/{1:d} {2:s}:".format(i + 1,
-                                              len(dataloader), img_path), end=" ")
+            print("{0:d}/{1:d} {2:s}:".format(i + 1, len(dataloader), img_path), end=" ")
         start = time.time()
 
         img = torch.from_numpy(img).float().unsqueeze(0).to(device)
@@ -91,15 +91,15 @@ def detect(cfg,
 
         # unique_classes = detections[:, -1].cpu().unique()
 
-        # Rescale boxes from img_size to the original image size
-        detections = rescale_coords(img_size, detections, img0.shape)
         # Draw bboxes and labels
-        for x1, y1, x2, y2, conf, cls_conf, cls_pred in detections:
-            print("\t+ Label: {:s}, Conf: {:.5f}".format(
-                classes[int(cls_pred)], cls_conf.item()))
+        if detections is not None:
+            # Rescale boxes from img_size to the original image size
+            detections = rescale_coords(img_size, detections, img0.shape)
+            for x1, y1, x2, y2, conf, cls_conf, cls_pred in detections:
+                print("\t+ Label: {:s}, Conf: {:.5f}".format(classes[int(cls_pred)], cls_conf.item()))
 
-            label = "{0:s} {1:.2f}".format(classes[int(cls_pred)], conf)
-            img0 = draw_bbox(img0, [x1, y1, x2, y2], label=label, color=colors[int(cls_pred)])
+                label = "{0:s} {1:.2f}".format(classes[int(cls_pred)], conf)
+                img0 = draw_bbox(img0, [x1, y1, x2, y2], label=label, color=colors[int(cls_pred)])
 
         if save_images:
             save_path = output / Path(img_path).name
@@ -118,6 +118,7 @@ if __name__ == "__main__":
                         help="Image / Directory to store detections to")
     parser.add_argument("--cfg", type=str, default="cfg/yolov3.cfg",
                         help="path to model config file")
+    parser.add_argument("--names", type=str, default="data/coco.names", help="path to class names file")
     parser.add_argument('--weights', type=str,
                         default='weights/yolov3.weights', help='path to weights file')
     parser.add_argument('--img_size', type=int, default=416,
@@ -132,6 +133,7 @@ if __name__ == "__main__":
     with torch.no_grad():
         detect(
             opt.cfg,
+            opt.names,
             opt.weights,
             opt.images,
             output=opt.output,

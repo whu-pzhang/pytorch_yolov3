@@ -129,6 +129,11 @@ class YOLOLayer(nn.Module):
         batch_size, grid_size = x.size(0), x.size(2)
         stride = self.img_size // grid_size
 
+        # Tensors for cuda support
+        FloatTensor = torch.cuda.FloatTensor if x.is_cuda else torch.FloatTensor
+        LongTensor = torch.cuda.LongTensor if x.is_cuda else torch.LongTensor
+        ByteTensor = torch.cuda.ByteTensor if x.is_cuda else torch.ByteTensor
+
         # (bs, depth, 13, 13) --> (bs, 3*85, 13*13) # (bs, num_anchors, grid, grid, bbox_attrs)
         prediction = x.view(batch_size, self.num_anchors *
                             self.bbox_attrs, grid_size*grid_size)
@@ -149,11 +154,10 @@ class YOLOLayer(nn.Module):
         a, b = np.meshgrid(grid, grid)
         # x_offset = cx, y_offset=cy
         # left-top coordinates of cell
-        x_offset = torch.FloatTensor(a).view(-1, 1)
-        y_offset = torch.FloatTensor(b).view(-1, 1)
+        x_offset = FloatTensor(a).view(-1, 1)
+        y_offset = FloatTensor(b).view(-1, 1)
 
-        xy_offset = torch.cat((x_offset, y_offset),
-                              1).repeat(1, self.num_anchors).view(-1, 2).unsqueeze(0)
+        xy_offset = torch.cat((x_offset, y_offset), 1).repeat(1, self.num_anchors).view(-1, 2).unsqueeze(0)
 
         # bx = sigmoid(tx) + cx
         # by = sigmoid(ty) + cy
@@ -161,7 +165,7 @@ class YOLOLayer(nn.Module):
 
         scaled_anchors = [(aw / stride, ah / stride)
                           for aw, ah in self.anchors]
-        scaled_anchors = torch.FloatTensor(scaled_anchors)
+        scaled_anchors = FloatTensor(scaled_anchors)
         scaled_anchors = scaled_anchors.repeat(
             grid_size*grid_size, 1).unsqueeze(0)
         # bw = pw * e^tw
