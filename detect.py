@@ -96,9 +96,10 @@ def detect(cfg,
             # Rescale boxes from img_size to the original image size
             detections = rescale_coords(img_size, detections, img0.shape)
             for x1, y1, x2, y2, conf, cls_conf, cls_pred in detections:
-                print("\t+ Label: {:s}, Conf: {:.5f}".format(classes[int(cls_pred)], cls_conf.item()))
+                print(
+                    "\t+ Label: {:s}, Conf: {:.5f}".format(classes[int(cls_pred)], cls_conf.item()))
 
-                label = "{0:s} {1:.2f}".format(classes[int(cls_pred)], conf)
+                label = "{0:s}".format(classes[int(cls_pred)])
                 img0 = draw_bbox(img0, [x1, y1, x2, y2], label=label, color=colors[int(cls_pred)])
 
         if save_images:
@@ -118,9 +119,13 @@ if __name__ == "__main__":
                         help="Image / Directory to store detections to")
     parser.add_argument("--cfg", type=str, default="cfg/yolov3.cfg",
                         help="path to model config file")
-    parser.add_argument("--names", type=str, default="data/coco.names", help="path to class names file")
-    parser.add_argument('--weights', type=str,
-                        default='weights/yolov3.weights', help='path to weights file')
+    parser.add_argument("--names", type=str, default="data/coco.names",
+                        help="path to class names file")
+    parser.add_argument(
+        '--weights',
+        type=str,
+        default='weights/yolov3.weights',
+        help='path to weights file')
     parser.add_argument('--img_size', type=int, default=416,
                         help='input image size of the network.(Increase to increase accuracy. Decrease to increase speed)')
     parser.add_argument('--conf_thres', type=float,

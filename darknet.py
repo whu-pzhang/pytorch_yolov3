@@ -32,7 +32,7 @@ def create_modules(blocks):
             activation = layer["activation"]
             try:
                 batch_normalize = int(layer["batch_normalize"])
-            except:
+            except BaseException:
                 batch_normalize = 0
             filters = int(layer["filters"])
             kernel_size = int(layer["size"])
@@ -58,7 +58,7 @@ def create_modules(blocks):
         # Upsampling layer
         elif layer["type"] == "upsample":
             stride = int(layer["stride"])
-            upsample = Upsample(scale_factor=stride,  mode="nearest")
+            upsample = Upsample(scale_factor=stride, mode="nearest")
             module.add_module("upsample_{}".format(index), upsample)
 
         # Route layer
@@ -136,10 +136,10 @@ class YOLOLayer(nn.Module):
 
         # (bs, depth, 13, 13) --> (bs, 3*85, 13*13) # (bs, num_anchors, grid, grid, bbox_attrs)
         prediction = x.view(batch_size, self.num_anchors *
-                            self.bbox_attrs, grid_size*grid_size)
+                            self.bbox_attrs, grid_size * grid_size)
         prediction = prediction.transpose(1, 2).contiguous()
         prediction = prediction.view(
-            batch_size, grid_size*grid_size*self.num_anchors, self.bbox_attrs)
+            batch_size, grid_size * grid_size * self.num_anchors, self.bbox_attrs)
 
         # Get outputs
         # x, y coordinates and object confidence
@@ -157,7 +157,8 @@ class YOLOLayer(nn.Module):
         x_offset = FloatTensor(a).view(-1, 1)
         y_offset = FloatTensor(b).view(-1, 1)
 
-        xy_offset = torch.cat((x_offset, y_offset), 1).repeat(1, self.num_anchors).view(-1, 2).unsqueeze(0)
+        xy_offset = torch.cat((x_offset, y_offset), 1).repeat(
+            1, self.num_anchors).view(-1, 2).unsqueeze(0)
 
         # bx = sigmoid(tx) + cx
         # by = sigmoid(ty) + cy
@@ -167,7 +168,7 @@ class YOLOLayer(nn.Module):
                           for aw, ah in self.anchors]
         scaled_anchors = FloatTensor(scaled_anchors)
         scaled_anchors = scaled_anchors.repeat(
-            grid_size*grid_size, 1).unsqueeze(0)
+            grid_size * grid_size, 1).unsqueeze(0)
         # bw = pw * e^tw
         # bh = ph * e^th
         prediction[:, :, 2:4] = torch.exp(
@@ -257,7 +258,7 @@ class Darknet(nn.Module):
                 conv = module[0]
                 try:
                     batch_normalize = int(module_def["batch_normalize"])
-                except:
+                except BaseException:
                     batch_normalize = 0
 
                 if batch_normalize:
